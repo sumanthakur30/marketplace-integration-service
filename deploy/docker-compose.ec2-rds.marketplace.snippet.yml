@@ -1,0 +1,28 @@
+# Opt-in snippet for docker-compose.ec2-rds.yml
+#
+# Gateway env (under gateway-service environment):
+#   GATEWAY_MARKETPLACE_URI: ${GATEWAY_MARKETPLACE_URI:-http://marketplace-integration-service:8096}
+#
+# Service (profile marketplace only):
+
+  marketplace-integration-service:
+    <<: *jvm-service
+    profiles: ["marketplace"]
+    image: ${IMAGE_PREFIX:-sumanthakur30}/marketplace-integration-service:${MARKETPLACE_IMAGE_TAG:-${IMAGE_TAG:-1.0.0}}
+    mem_limit: ${MARKETPLACE_SERVICE_MEM_LIMIT:-400m}
+    environment:
+      <<: *common-env
+      EUREKA_INSTANCE_HOSTNAME: marketplace-integration-service
+      SERVER_PORT: 8096
+      MARKETPLACE_DB_URL: ${MARKETPLACE_DB_URL}
+      MARKETPLACE_DB_USERNAME: ${MARKETPLACE_DB_USERNAME:-marketplacedb}
+      MARKETPLACE_DB_PASSWORD: ${MARKETPLACE_DB_PASSWORD:-marketplacedb}
+      SPRING_DATASOURCE_URL: ${MARKETPLACE_DB_URL}
+      SPRING_DATASOURCE_USERNAME: ${MARKETPLACE_DB_USERNAME:-marketplacedb}
+      SPRING_DATASOURCE_PASSWORD: ${MARKETPLACE_DB_PASSWORD:-marketplacedb}
+      MARKETPLACE_ENTITLEMENT_ENABLED: ${MARKETPLACE_ENTITLEMENT_ENABLED:-false}
+      MARKETPLACE_STOCK_BASE_URL: ${MARKETPLACE_STOCK_BASE_URL:-http://stock-service:8082}
+      MARKETPLACE_SHOP_BASE_URL: ${MARKETPLACE_SHOP_BASE_URL:-http://shop-service:8080}
+    depends_on:
+      discovery-service:
+        condition: service_healthy

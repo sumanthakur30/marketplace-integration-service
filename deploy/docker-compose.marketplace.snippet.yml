@@ -1,0 +1,30 @@
+# Opt-in snippet for D:\sugamFlow\docker-compose.yml (profile: marketplace)
+# Paste under services: — does not start unless --profile marketplace is set.
+
+  marketplace-integration-service:
+    profiles: ["marketplace"]
+    build:
+      context: ./marketplace-integration-service
+      dockerfile: Dockerfile
+    image: ${IMAGE_PREFIX:-sumanthakur30}/marketplace-integration-service:${IMAGE_TAG:-1.0.0}
+    pull_policy: build
+    environment:
+      <<: *common-env
+      SERVER_PORT: 8096
+      SPRING_PROFILES_ACTIVE: local
+      MARKETPLACE_DB_URL: ${MARKETPLACE_DB_URL:-jdbc:postgresql://host.docker.internal:5432/marketplacedb}
+      MARKETPLACE_DB_USERNAME: ${MARKETPLACE_DB_USERNAME:-marketplacedb}
+      MARKETPLACE_DB_PASSWORD: ${MARKETPLACE_DB_PASSWORD:-marketplacedb}
+      SPRING_DATASOURCE_URL: ${MARKETPLACE_DB_URL:-jdbc:postgresql://host.docker.internal:5432/marketplacedb}
+      SPRING_DATASOURCE_USERNAME: ${MARKETPLACE_DB_USERNAME:-marketplacedb}
+      SPRING_DATASOURCE_PASSWORD: ${MARKETPLACE_DB_PASSWORD:-marketplacedb}
+      MARKETPLACE_ENTITLEMENT_ENABLED: ${MARKETPLACE_ENTITLEMENT_ENABLED:-false}
+      MARKETPLACE_STOCK_BASE_URL: ${MARKETPLACE_STOCK_BASE_URL:-http://host.docker.internal:8082}
+      MARKETPLACE_SHOP_BASE_URL: ${MARKETPLACE_SHOP_BASE_URL:-http://host.docker.internal:8080}
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    ports:
+      - "${MARKETPLACE_SERVICE_HOST_PORT:-8096}:8096"
+    depends_on:
+      discovery-service:
+        condition: service_healthy
