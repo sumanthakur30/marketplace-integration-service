@@ -9,8 +9,11 @@ import java.util.Map;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.context.annotation.Lazy;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Propagation;
+import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.server.ResponseStatusException;
 
@@ -43,6 +46,7 @@ public class MarketplaceWebhookService {
   private final AmazonOrderWebhookMapper amazonOrderWebhookMapper;
   private final MarketplaceProperties properties;
   private final ObjectMapper objectMapper;
+  private final MarketplaceWebhookService self;
 
   public MarketplaceWebhookService(
       MarketplaceWebhookEventRepository webhookEventRepository,
@@ -53,7 +57,8 @@ public class MarketplaceWebhookService {
       ShopifyOrderWebhookMapper shopifyOrderWebhookMapper,
       AmazonOrderWebhookMapper amazonOrderWebhookMapper,
       MarketplaceProperties properties,
-      ObjectMapper objectMapper) {
+      ObjectMapper objectMapper,
+      @Lazy MarketplaceWebhookService self) {
     this.webhookEventRepository = webhookEventRepository;
     this.channelRepository = channelRepository;
     this.accountRepository = accountRepository;
@@ -63,9 +68,13 @@ public class MarketplaceWebhookService {
     this.amazonOrderWebhookMapper = amazonOrderWebhookMapper;
     this.properties = properties;
     this.objectMapper = objectMapper;
+    this.self = self;
   }
 
-  @Transactional
+  /**
+   * Persist first (own tx), then auto-process in REQUIRES_NEW so stock/order failures
+   * still ACK the webhook and do not roll back the stored event.
+   */
   public Map<String, Object> accept(
       String channelRaw,
       byte[] rawBody,
@@ -90,14 +99,9 @@ public class MarketplaceWebhookService {
             ? resolveShopIdFromAccount(matched)
             : blankToNull(shopHint);
 
-    MarketplaceWebhookEvent event = new MarketplaceWebhookEvent();
-    event.setTenantId(tenantId);
-    event.setChannelCode(channel);
-    event.setEventType(eventType);
-    event.setExternalId(externalId);
-    event.setPayloadJson(enrichPayload(payload, headers, shopId));
-    event.setProcessed(false);
-    event = webhookEventRepository.save(event);
+    MarketplaceWebhookEvent event =
+        self.persistIncoming(
+            tenantId, channel, eventType, externalId, enrichPayload(payload, headers, shopId));
 
     Map<String, Object> result = new LinkedHashMap<>();
     result.put("accepted", true);
@@ -110,12 +114,12 @@ public class MarketplaceWebhookService {
 
     if (properties.getInbound().isAutoProcess() && matched != null && tenantId != null) {
       try {
-        Map<String, Object> processed = processEvent(event.getId(), matched, shopId);
+        Map<String, Object> processed = self.processEvent(event.getId(), matched, shopId);
         result.putAll(processed);
         result.put("processed", true);
       } catch (Exception ex) {
         log.warn("webhook auto-process failed id={}: {}", event.getId(), ex.toString());
-        markError(event.getId(), ex.getMessage());
+        self.markError(event.getId(), ex.getMessage());
         result.put("processed", false);
         result.put("processError", ex.getMessage());
       }
@@ -128,6 +132,23 @@ public class MarketplaceWebhookService {
   }
 
   @Transactional
+  public MarketplaceWebhookEvent persistIncoming(
+      String tenantId,
+      String channel,
+      String eventType,
+      String externalId,
+      Map<String, Object> payloadJson) {
+    MarketplaceWebhookEvent event = new MarketplaceWebhookEvent();
+    event.setTenantId(tenantId);
+    event.setChannelCode(channel);
+    event.setEventType(eventType);
+    event.setExternalId(externalId);
+    event.setPayloadJson(payloadJson);
+    event.setProcessed(false);
+    return webhookEventRepository.save(event);
+  }
+
+  @Transactional(propagation = Propagation.REQUIRES_NEW)
   public Map<String, Object> processEvent(Long eventId, MarketplaceChannel channel, String shopId) {
     MarketplaceWebhookEvent event =
         webhookEventRepository
@@ -239,7 +260,8 @@ public class MarketplaceWebhookService {
     }
   }
 
-  private void markError(Long eventId, String message) {
+  @Transactional(propagation = Propagation.REQUIRES_NEW)
+  public void markError(Long eventId, String message) {
     webhookEventRepository
         .findById(eventId)
         .ifPresent(

@@ -77,7 +77,7 @@ public class ShopifyOrderWebhookMapper {
       throw new IllegalArgumentException("Shopify order has no line_items");
     }
     return new OrderDtos.IngestRequest(
-        "SHOPIFY", externalId, currency, total, true, items, new java.util.LinkedHashMap<>(payload));
+        "SHOPIFY", externalId, currency, total, null, items, new java.util.LinkedHashMap<>(payload));
   }
 
   private static String firstNonBlank(String a, String b) {
