@@ -213,6 +213,26 @@ public class MarketplaceOrderService {
     return toOrderMap(orderRepository.save(order));
   }
 
+  @Transactional
+  public Map<String, Object> cancelByExternalOrderId(String channelCode, String externalOrderId) {
+    String tenantId = TenantIds.require();
+    MarketplaceChannel channel =
+        channelRepository
+            .findByTenantIdAndChannelCodeAndDeletedAtIsNull(tenantId, channelCode.toUpperCase())
+            .orElseThrow(
+                () ->
+                    new ResponseStatusException(
+                        HttpStatus.NOT_FOUND, "Channel not configured: " + channelCode));
+    MarketplaceOrder order =
+        orderRepository
+            .findByChannelIdAndExternalOrderId(channel.getId(), externalOrderId)
+            .orElseThrow(
+                () ->
+                    new ResponseStatusException(
+                        HttpStatus.NOT_FOUND, "Order not found: " + externalOrderId));
+    return cancel(order.getId());
+  }
+
   private ResolvedLine resolveLine(Long channelId, OrderDtos.Line line) {
     if (line == null || line.quantity() == null || line.quantity().signum() <= 0) {
       throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Line quantity must be > 0");

@@ -42,6 +42,43 @@ public class TenantContextFilter extends OncePerRequestFilter {
     return USER.get();
   }
 
+  /** Bind tenant for public webhook processing (must clear in finally). */
+  public static void runWithTenant(String tenantId, String shopId, Runnable action) {
+    String prevTenant = TENANT.get();
+    String prevShop = SHOP.get();
+    String prevUser = USER.get();
+    try {
+      TENANT.set(tenantId);
+      SHOP.set(shopId);
+      USER.set(null);
+      if (tenantId != null) {
+        MDC.put("tenantId", tenantId);
+      }
+      action.run();
+    } finally {
+      if (prevTenant != null) {
+        TENANT.set(prevTenant);
+      } else {
+        TENANT.remove();
+      }
+      if (prevShop != null) {
+        SHOP.set(prevShop);
+      } else {
+        SHOP.remove();
+      }
+      if (prevUser != null) {
+        USER.set(prevUser);
+      } else {
+        USER.remove();
+      }
+      if (prevTenant != null) {
+        MDC.put("tenantId", prevTenant);
+      } else {
+        MDC.remove("tenantId");
+      }
+    }
+  }
+
   @Override
   protected boolean shouldNotFilter(HttpServletRequest request) {
     String path = request.getRequestURI();

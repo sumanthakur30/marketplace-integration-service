@@ -27,7 +27,21 @@ Docker (opt-in):
 docker compose --env-file .env.local --profile marketplace up -d --build marketplace-integration-service
 ```
 
-## Phase 2 APIs
+## Phase 3a — Shopify webhooks
+
+```http
+POST /api/v1/marketplace/public/webhooks/SHOPIFY?tenantId={tenant}&shopId={shop}
+X-Shopify-Topic: orders/create
+X-Shopify-Shop-Domain: my-store.myshopify.com
+X-Shopify-Hmac-Sha256: <base64>   # required only if MARKETPLACE_INBOUND_SIGNING_ENABLED=true
+```
+
+- Always persists `marketplace_webhook_event`
+- Resolves channel by `external_seller_id` / `config.shopDomain` **or** `tenantId` query
+- `orders/create|updated|paid` → order ingest + stock reserve
+- `orders/cancelled` → cancel + stock release
+- HMAC off by default (existing clients unaffected)
+
 
 Headers: `X-Tenant-Id`, `X-Shop-Id` (required for catalog/orders).
 

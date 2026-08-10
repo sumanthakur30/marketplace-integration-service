@@ -223,6 +223,9 @@ public class MarketplaceProperties {
   public static class Inbound {
     private boolean signingEnabled;
     private String hmacSecret = "";
+    /** Prefer for Shopify; falls back to hmacSecret. */
+    private String shopifyHmacSecret = "";
+    private boolean autoProcess = true;
 
     public boolean isSigningEnabled() {
       return signingEnabled;
@@ -238,6 +241,22 @@ public class MarketplaceProperties {
 
     public void setHmacSecret(String hmacSecret) {
       this.hmacSecret = hmacSecret;
+    }
+
+    public String getShopifyHmacSecret() {
+      return shopifyHmacSecret;
+    }
+
+    public void setShopifyHmacSecret(String shopifyHmacSecret) {
+      this.shopifyHmacSecret = shopifyHmacSecret;
+    }
+
+    public boolean isAutoProcess() {
+      return autoProcess;
+    }
+
+    public void setAutoProcess(boolean autoProcess) {
+      this.autoProcess = autoProcess;
     }
   }
 }

@@ -18,4 +18,6 @@ public interface MarketplaceChannelRepository extends JpaRepository<MarketplaceC
 
   Optional<MarketplaceChannel> findByTenantIdAndChannelCodeAndDeletedAtIsNull(
       String tenantId, String channelCode);
+
+  List<MarketplaceChannel> findByChannelCodeAndEnabledTrueAndDeletedAtIsNull(String channelCode);
 }
