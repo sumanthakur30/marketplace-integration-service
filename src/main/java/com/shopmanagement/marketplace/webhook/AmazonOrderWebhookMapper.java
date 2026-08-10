@@ -105,7 +105,7 @@ public class AmazonOrderWebhookMapper {
             ? "INR"
             : firstString(payload, "currency", "CurrencyCode"),
         decimal(firstObject(payload, "orderTotal", "OrderTotal")),
-        true,
+        null,
         items,
         new LinkedHashMap<>(payload));
   }
