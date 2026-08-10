@@ -24,6 +24,7 @@ import com.shopmanagement.marketplace.filter.TenantContextFilter;
 import com.shopmanagement.marketplace.repo.MarketplaceAccountRepository;
 import com.shopmanagement.marketplace.repo.MarketplaceChannelRepository;
 import com.shopmanagement.marketplace.repo.MarketplaceWebhookEventRepository;
+import com.shopmanagement.marketplace.webhook.AmazonOrderWebhookMapper;
 import com.shopmanagement.marketplace.webhook.ShopifyOrderWebhookMapper;
 import com.shopmanagement.marketplace.webhook.WebhookHmacVerifier;
 import com.shopmanagement.marketplace.web.dto.OrderDtos;
@@ -39,6 +40,7 @@ public class MarketplaceWebhookService {
   private final MarketplaceOrderService orderService;
   private final WebhookHmacVerifier hmacVerifier;
   private final ShopifyOrderWebhookMapper shopifyOrderWebhookMapper;
+  private final AmazonOrderWebhookMapper amazonOrderWebhookMapper;
   private final MarketplaceProperties properties;
   private final ObjectMapper objectMapper;
 
@@ -49,6 +51,7 @@ public class MarketplaceWebhookService {
       MarketplaceOrderService orderService,
       WebhookHmacVerifier hmacVerifier,
       ShopifyOrderWebhookMapper shopifyOrderWebhookMapper,
+      AmazonOrderWebhookMapper amazonOrderWebhookMapper,
       MarketplaceProperties properties,
       ObjectMapper objectMapper) {
     this.webhookEventRepository = webhookEventRepository;
@@ -57,6 +60,7 @@ public class MarketplaceWebhookService {
     this.orderService = orderService;
     this.hmacVerifier = hmacVerifier;
     this.shopifyOrderWebhookMapper = shopifyOrderWebhookMapper;
+    this.amazonOrderWebhookMapper = amazonOrderWebhookMapper;
     this.properties = properties;
     this.objectMapper = objectMapper;
   }
@@ -145,6 +149,8 @@ public class MarketplaceWebhookService {
         () -> {
           if ("SHOPIFY".equalsIgnoreCase(event.getChannelCode())) {
             out[0] = processShopify(event);
+          } else if ("AMAZON".equalsIgnoreCase(event.getChannelCode())) {
+            out[0] = processAmazon(event);
           } else {
             event.setProcessed(true);
             event.setProcessedAt(Instant.now());
@@ -161,6 +167,41 @@ public class MarketplaceWebhookService {
           }
         });
     return out[0];
+  }
+
+  private Map<String, Object> processAmazon(MarketplaceWebhookEvent event) {
+    String topic = event.getEventType();
+    Map<String, Object> payload = event.getPayloadJson();
+    Map<String, Object> out = new LinkedHashMap<>();
+    out.put("webhookEventId", event.getId());
+    try {
+      if (amazonOrderWebhookMapper.isOrderCancelled(topic, payload)) {
+        String externalId =
+            amazonOrderWebhookMapper
+                .externalOrderId(payload)
+                .orElseThrow(() -> new IllegalArgumentException("Missing Amazon order id"));
+        Map<String, Object> cancelled = orderService.cancelByExternalOrderId("AMAZON", externalId);
+        out.put("action", "CANCEL");
+        out.put("order", cancelled);
+      } else if (amazonOrderWebhookMapper.isOrderCreateOrUpdate(topic, payload)) {
+        OrderDtos.IngestRequest ingest = amazonOrderWebhookMapper.toIngestRequest(payload);
+        Map<String, Object> order = orderService.ingest(ingest);
+        out.put("action", "INGEST");
+        out.put("order", order);
+      } else {
+        out.put("action", "IGNORE");
+        out.put("topic", topic);
+      }
+      event.setProcessed(true);
+      event.setProcessedAt(Instant.now());
+      event.setProcessError(null);
+      webhookEventRepository.save(event);
+      return out;
+    } catch (RuntimeException ex) {
+      event.setProcessError(ex.getMessage());
+      webhookEventRepository.save(event);
+      throw ex;
+    }
   }
 
   private Map<String, Object> processShopify(MarketplaceWebhookEvent event) {
@@ -241,6 +282,30 @@ public class MarketplaceWebhookService {
         }
       }
     }
+    if ("AMAZON".equals(channel)) {
+      String sellerId =
+          firstHeader(headers, "X-Amzn-Seller-Id", "X-Marketplace-Seller-Id");
+      if (sellerId == null || sellerId.isBlank()) {
+        sellerId = stringVal(payload.get("sellerId"));
+        if (sellerId == null) {
+          sellerId = stringVal(payload.get("SellerId"));
+        }
+      }
+      if (sellerId != null) {
+        String sid = sellerId.trim();
+        List<MarketplaceChannel> candidates =
+            channelRepository.findByChannelCodeAndEnabledTrueAndDeletedAtIsNull("AMAZON");
+        for (MarketplaceChannel c : candidates) {
+          if (domainEquals(c.getExternalSellerId(), sid)) {
+            return c;
+          }
+          Object cfgSeller = c.getConfigJson() != null ? c.getConfigJson().get("sellerId") : null;
+          if (domainEquals(cfgSeller == null ? null : String.valueOf(cfgSeller), sid)) {
+            return c;
+          }
+        }
+      }
+    }
     return null;
   }
 
@@ -307,6 +372,9 @@ public class MarketplaceWebhookService {
   private String resolveExternalId(String channel, Map<String, Object> payload) {
     if ("SHOPIFY".equals(channel)) {
       return shopifyOrderWebhookMapper.externalOrderId(payload).orElse(null);
+    }
+    if ("AMAZON".equals(channel)) {
+      return amazonOrderWebhookMapper.externalOrderId(payload).orElse(null);
     }
     Object id = payload.get("id");
     if (id == null) {

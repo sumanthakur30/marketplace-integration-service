@@ -63,6 +63,11 @@ public class WebhookHmacVerifier {
         && !inbound.getShopifyHmacSecret().isBlank()) {
       return inbound.getShopifyHmacSecret();
     }
+    if ("AMAZON".equalsIgnoreCase(channelCode)
+        && inbound.getAmazonHmacSecret() != null
+        && !inbound.getAmazonHmacSecret().isBlank()) {
+      return inbound.getAmazonHmacSecret();
+    }
     return inbound.getHmacSecret();
   }
 

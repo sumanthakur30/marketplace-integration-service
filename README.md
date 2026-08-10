@@ -27,7 +27,27 @@ Docker (opt-in):
 docker compose --env-file .env.local --profile marketplace up -d --build marketplace-integration-service
 ```
 
-## Phase 3a — Shopify webhooks
+## Phase 3b — inventory push + Amazon webhooks
+
+### Inventory sync
+```http
+POST /api/v1/marketplace/inventory/sync?channelId={id}
+X-Tenant-Id: ...
+X-Shop-Id: ...
+```
+- Reads available qty from stock-service (no stock mutation)
+- Caps by `mapping.allocation_qty`
+- Shopify: Admin `inventory_levels/set` when `dry-run=false` and channel config has `shopDomain`, `accessToken`, `locationId`; mapping attr `inventoryItemId`
+- Amazon: dry-run by default; live POST to `inventoryEndpoint` when configured
+
+### Amazon webhooks
+```http
+POST /api/v1/marketplace/public/webhooks/AMAZON?tenantId=...&shopId=...
+X-Amzn-Seller-Id: A1XXXX
+```
+Pilot body: `{ "amazonOrderId","orderStatus","items":[{"sellerSku","quantityOrdered"}] }`  
+Cancel when `orderStatus` contains CANCEL.
+
 
 ```http
 POST /api/v1/marketplace/public/webhooks/SHOPIFY?tenantId={tenant}&shopId={shop}

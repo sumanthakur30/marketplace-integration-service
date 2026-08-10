@@ -210,6 +210,11 @@ public class MarketplaceProperties {
 
   public static class ChannelToggle {
     private boolean enabled;
+    /** When true, inventory push does not call the remote API (safe default). */
+    private boolean dryRun = true;
+    private String apiVersion = "2024-10";
+    /** Amazon bridge URL for quantity updates (optional). */
+    private String inventoryEndpoint = "";
 
     public boolean isEnabled() {
       return enabled;
@@ -218,6 +223,30 @@ public class MarketplaceProperties {
     public void setEnabled(boolean enabled) {
       this.enabled = enabled;
     }
+
+    public boolean isDryRun() {
+      return dryRun;
+    }
+
+    public void setDryRun(boolean dryRun) {
+      this.dryRun = dryRun;
+    }
+
+    public String getApiVersion() {
+      return apiVersion;
+    }
+
+    public void setApiVersion(String apiVersion) {
+      this.apiVersion = apiVersion;
+    }
+
+    public String getInventoryEndpoint() {
+      return inventoryEndpoint;
+    }
+
+    public void setInventoryEndpoint(String inventoryEndpoint) {
+      this.inventoryEndpoint = inventoryEndpoint;
+    }
   }
 
   public static class Inbound {
@@ -225,6 +254,7 @@ public class MarketplaceProperties {
     private String hmacSecret = "";
     /** Prefer for Shopify; falls back to hmacSecret. */
     private String shopifyHmacSecret = "";
+    private String amazonHmacSecret = "";
     private boolean autoProcess = true;
 
     public boolean isSigningEnabled() {
@@ -249,6 +279,14 @@ public class MarketplaceProperties {
 
     public void setShopifyHmacSecret(String shopifyHmacSecret) {
       this.shopifyHmacSecret = shopifyHmacSecret;
+    }
+
+    public String getAmazonHmacSecret() {
+      return amazonHmacSecret;
+    }
+
+    public void setAmazonHmacSecret(String amazonHmacSecret) {
+      this.amazonHmacSecret = amazonHmacSecret;
     }
 
     public boolean isAutoProcess() {
