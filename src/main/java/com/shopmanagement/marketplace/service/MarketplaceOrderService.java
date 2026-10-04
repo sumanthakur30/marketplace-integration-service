@@ -22,6 +22,8 @@ import com.shopmanagement.marketplace.domain.MarketplaceOrderItem;
 import com.shopmanagement.marketplace.repo.MarketplaceChannelRepository;
 import com.shopmanagement.marketplace.repo.MarketplaceOrderItemRepository;
 import com.shopmanagement.marketplace.repo.MarketplaceOrderRepository;
+import com.shopmanagement.marketplace.order.ErpOrderRequest;
+import com.shopmanagement.marketplace.order.OrderErpClient;
 import com.shopmanagement.marketplace.repo.MarketplaceProductMappingRepository;
 import com.shopmanagement.marketplace.stock.StockAvailabilityClient;
 import com.shopmanagement.marketplace.support.TenantIds;
@@ -35,6 +37,7 @@ public class MarketplaceOrderService {
   private final MarketplaceOrderRepository orderRepository;
   private final MarketplaceOrderItemRepository orderItemRepository;
   private final StockAvailabilityClient stockAvailabilityClient;
+  private final OrderErpClient orderErpClient;
   private final MarketplaceProperties properties;
 
   public MarketplaceOrderService(
@@ -43,12 +46,14 @@ public class MarketplaceOrderService {
       MarketplaceOrderRepository orderRepository,
       MarketplaceOrderItemRepository orderItemRepository,
       StockAvailabilityClient stockAvailabilityClient,
+      OrderErpClient orderErpClient,
       MarketplaceProperties properties) {
     this.channelRepository = channelRepository;
     this.mappingRepository = mappingRepository;
     this.orderRepository = orderRepository;
     this.orderItemRepository = orderItemRepository;
     this.stockAvailabilityClient = stockAvailabilityClient;
+    this.orderErpClient = orderErpClient;
     this.properties = properties;
   }
 
@@ -103,11 +108,23 @@ public class MarketplaceOrderService {
     var existing =
         orderRepository.findByChannelIdAndExternalOrderId(channel.getId(), req.externalOrderId().trim());
     if (existing.isPresent()) {
-      Map<String, Object> out = toOrderMap(existing.get());
+      MarketplaceOrder order = existing.get();
+      if (shouldBridge(channel) && order.getErpOrderId() == null) {
+        if (order.getStockReservationKey() != null) {
+          markErpError(
+              order,
+              "Stock was already reserved for this marketplace order, so a second bill was not created.");
+        } else {
+          linkRetailOrder(
+              order, channel, orderItemRepository.findByOrderIdOrderByIdAsc(order.getId()));
+        }
+        order = orderRepository.save(order);
+      }
+      Map<String, Object> out = toOrderMap(order);
       out.put("idempotent", true);
       out.put(
           "items",
-          orderItemRepository.findByOrderIdOrderByIdAsc(existing.get().getId()).stream()
+          orderItemRepository.findByOrderIdOrderByIdAsc(order.getId()).stream()
               .map(this::toItemMap)
               .collect(Collectors.toList()));
       return out;
@@ -151,11 +168,9 @@ public class MarketplaceOrderService {
       }
     }
 
-    boolean doReserve =
-        req.reserveStock() == null
-            ? properties.getStock().isReserveOnIngest()
-            : Boolean.TRUE.equals(req.reserveStock());
-    if (doReserve && !reserveQty.isEmpty() && properties.getStock().isEnabled()) {
+    if (shouldBridge(channel)) {
+      linkRetailOrder(order, channel, savedItems);
+    } else if (shouldReserve(req, reserveQty)) {
       String reservationKey =
           "MP-" + tenantId + "-" + channelCode + "-" + order.getExternalOrderId();
       try {
@@ -181,6 +196,85 @@ public class MarketplaceOrderService {
     out.put("items", savedItems.stream().map(this::toItemMap).collect(Collectors.toList()));
     out.put("reservedProducts", reserveQty);
     return out;
+  }
+
+  private boolean shouldBridge(MarketplaceChannel channel) {
+    return properties.getOrders().isBridgeEnabled()
+        && ErpOrderRequest.orderSyncEnabled(channel.getConfigJson());
+  }
+
+  private boolean shouldReserve(OrderDtos.IngestRequest req, Map<Long, Integer> reserveQty) {
+    boolean doReserve =
+        req.reserveStock() == null
+            ? properties.getStock().isReserveOnIngest()
+            : Boolean.TRUE.equals(req.reserveStock());
+    return doReserve && reserveQty != null && !reserveQty.isEmpty() && properties.getStock().isEnabled();
+  }
+
+  /**
+   * One retail order, reserved by order-service. This method does not call reserve-batch itself.
+   * A missing customer or product is stored on the marketplace row and does not create either.
+   */
+  private void linkRetailOrder(
+      MarketplaceOrder order, MarketplaceChannel channel, List<MarketplaceOrderItem> items) {
+    if (order.getErpOrderId() != null) {
+      return;
+    }
+    Long customerId = ErpOrderRequest.customerId(configValue(channel, "defaultCustomerId"));
+    if (customerId == null) {
+      markErpError(
+          order, "Set a default customer id on the sales channel before order sync can create a bill.");
+      return;
+    }
+    for (MarketplaceOrderItem item : items) {
+      if (item.getProductId() == null) {
+        markErpError(order, "A line has no product. Map the SKU before a bill is created.");
+        return;
+      }
+    }
+    try {
+      Long erpOrderId =
+          orderErpClient.createRetailOrder(
+              order.getTenantId(),
+              order.getShopId(),
+              channel.getId(),
+              channel.getChannelCode(),
+              order.getExternalOrderId(),
+              customerId,
+              items);
+      order.setErpOrderId(erpOrderId);
+      order.setStatus("RESERVED");
+      clearErpError(order);
+    } catch (RuntimeException ex) {
+      String message = ex.getMessage() == null ? "Sales bill was not created" : ex.getMessage();
+      markErpError(order, message);
+    }
+  }
+
+  private static Object configValue(MarketplaceChannel channel, String key) {
+    if (channel.getConfigJson() == null) {
+      return null;
+    }
+    return channel.getConfigJson().get(key);
+  }
+
+  private static void markErpError(MarketplaceOrder order, String message) {
+    order.setStatus("ERROR");
+    Map<String, Object> payload =
+        order.getPayloadJson() == null
+            ? new LinkedHashMap<>()
+            : new LinkedHashMap<>(order.getPayloadJson());
+    payload.put("erpError", message);
+    order.setPayloadJson(payload);
+  }
+
+  private static void clearErpError(MarketplaceOrder order) {
+    if (order.getPayloadJson() == null || !order.getPayloadJson().containsKey("erpError")) {
+      return;
+    }
+    Map<String, Object> payload = new LinkedHashMap<>(order.getPayloadJson());
+    payload.remove("erpError");
+    order.setPayloadJson(payload);
   }
 
   @Transactional
@@ -287,6 +381,9 @@ public class MarketplaceOrderService {
     m.put("totalAmount", o.getTotalAmount());
     m.put("stockReservationKey", o.getStockReservationKey());
     m.put("erpOrderId", o.getErpOrderId());
+    if (o.getPayloadJson() != null && o.getPayloadJson().get("erpError") != null) {
+      m.put("erpError", String.valueOf(o.getPayloadJson().get("erpError")));
+    }
     m.put("orderedAt", o.getOrderedAt());
     return m;
   }
