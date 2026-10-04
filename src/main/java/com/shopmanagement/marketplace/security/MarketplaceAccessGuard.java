@@ -23,6 +23,24 @@ public class MarketplaceAccessGuard {
         "MARKETPLACE_MANAGE");
   }
 
+  public void requireOrderView() {
+    MarketplaceAccessCheck.require(
+        TenantContextFilter.getCurrentRole(),
+        TenantContextFilter.getCurrentPermissions(),
+        "MARKETPLACE_VIEW",
+        "MARKETPLACE_MANAGE",
+        "MARKETPLACE_ORDER_VIEW",
+        "MARKETPLACE_ORDER_MANAGE");
+  }
+
+  public void requireOrderManage() {
+    MarketplaceAccessCheck.require(
+        TenantContextFilter.getCurrentRole(),
+        TenantContextFilter.getCurrentPermissions(),
+        "MARKETPLACE_ORDER_MANAGE",
+        "MARKETPLACE_MANAGE");
+  }
+
   public void requireConnect() {
     MarketplaceAccessCheck.require(
         TenantContextFilter.getCurrentRole(),
