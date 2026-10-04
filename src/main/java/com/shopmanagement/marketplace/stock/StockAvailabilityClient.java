@@ -117,6 +117,24 @@ public class StockAvailabilityClient {
     postFefo("/stock/reservations/" + encodeKey(reservationKey) + "/release", tenantId, shopId);
   }
 
+  public void addQuantity(String tenantId, String shopId, long productId, int quantity) {
+    if (!properties.getStock().isEnabled() || quantity <= 0) {
+      return;
+    }
+    Map<String, Object> body = new LinkedHashMap<>();
+    body.put("productId", productId);
+    body.put("quantity", quantity);
+    body.put("branchId", 1);
+    client()
+        .post()
+        .uri("/stock/add")
+        .contentType(MediaType.APPLICATION_JSON)
+        .headers(h -> applyTenant(h, tenantId, shopId))
+        .body(body)
+        .retrieve()
+        .toBodilessEntity();
+  }
+
   private static String encodeKey(String reservationKey) {
     return UriUtils.encodePathSegment(reservationKey == null ? "" : reservationKey, StandardCharsets.UTF_8);
   }

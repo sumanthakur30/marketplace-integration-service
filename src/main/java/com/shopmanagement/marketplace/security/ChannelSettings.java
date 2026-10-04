@@ -44,6 +44,13 @@ public final class ChannelSettings {
           "region",
           "apiEndpoint",
           "inventoryEndpoint",
+          "authHeader",
+          "connectorOrdersPath",
+          "connectorOrderIdField",
+          "connectorSkuField",
+          "connectorQuantityField",
+          "connectorPriceField",
+          "connectorListingField",
           "shopDomain",
           "locationId",
           "sellerId");
@@ -87,7 +94,7 @@ public final class ChannelSettings {
         merged.remove(key);
         continue;
       }
-      int max = "returnPolicy".equals(key) ? 500 : 128;
+      int max = "returnPolicy".equals(key) || "apiEndpoint".equals(key) ? 500 : 128;
       if (text.length() > max) {
         throw new ResponseStatusException(HttpStatus.BAD_REQUEST, key + " is too long");
       }
