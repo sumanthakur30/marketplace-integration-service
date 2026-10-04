@@ -21,10 +21,14 @@ import com.shopmanagement.marketplace.security.ChannelSecrets;
 import com.shopmanagement.marketplace.security.MarketplaceAccessGuard;
 import com.shopmanagement.marketplace.service.MarketplaceAmazonService;
 import com.shopmanagement.marketplace.service.MarketplaceCatalogService;
+import com.shopmanagement.marketplace.service.MarketplaceConnectorService;
+import com.shopmanagement.marketplace.service.MarketplaceFlipkartService;
 import com.shopmanagement.marketplace.service.MarketplaceSellableService;
+import com.shopmanagement.marketplace.service.MarketplaceSettlementService;
 import com.shopmanagement.marketplace.web.dto.AccountDtos;
 import com.shopmanagement.marketplace.web.dto.AmazonDtos;
 import com.shopmanagement.marketplace.web.dto.ChannelDtos;
+import com.shopmanagement.marketplace.web.dto.LaterDtos;
 import com.shopmanagement.marketplace.web.dto.MappingDtos;
 
 @RestController
@@ -36,18 +40,27 @@ public class MarketplaceCatalogController {
   private final MarketplaceCatalogService catalogService;
   private final MarketplaceSellableService sellableService;
   private final MarketplaceAmazonService amazonService;
+  private final MarketplaceFlipkartService flipkartService;
+  private final MarketplaceConnectorService connectorService;
+  private final MarketplaceSettlementService settlementService;
 
   public MarketplaceCatalogController(
       MarketplaceEntitlementGuard entitlementGuard,
       MarketplaceAccessGuard accessGuard,
       MarketplaceCatalogService catalogService,
       MarketplaceSellableService sellableService,
-      MarketplaceAmazonService amazonService) {
+      MarketplaceAmazonService amazonService,
+      MarketplaceFlipkartService flipkartService,
+      MarketplaceConnectorService connectorService,
+      MarketplaceSettlementService settlementService) {
     this.entitlementGuard = entitlementGuard;
     this.accessGuard = accessGuard;
     this.catalogService = catalogService;
     this.sellableService = sellableService;
     this.amazonService = amazonService;
+    this.flipkartService = flipkartService;
+    this.connectorService = connectorService;
+    this.settlementService = settlementService;
   }
 
   @GetMapping("/accounts")
@@ -131,6 +144,35 @@ public class MarketplaceCatalogController {
     entitlementGuard.requireModule();
     accessGuard.requireOrderManage();
     return amazonService.pullOrders(id);
+  }
+
+  @PostMapping("/channels/{id}/flipkart/connect")
+  public Map<String, Object> flipkartConnect(@PathVariable Long id) {
+    entitlementGuard.requireModule();
+    accessGuard.requireConnect();
+    return flipkartService.connect(id);
+  }
+
+  @PostMapping("/channels/{id}/flipkart/pull")
+  public Map<String, Object> flipkartPull(@PathVariable Long id) {
+    entitlementGuard.requireModule();
+    accessGuard.requireOrderManage();
+    return flipkartService.pullOrders(id);
+  }
+
+  @PostMapping("/channels/{id}/connector/pull")
+  public Map<String, Object> connectorPull(@PathVariable Long id) {
+    entitlementGuard.requireModule();
+    accessGuard.requireOrderManage();
+    return connectorService.pullOrders(id);
+  }
+
+  @PostMapping("/channels/{id}/settlements")
+  public Map<String, Object> recordSettlement(
+      @PathVariable Long id, @RequestBody LaterDtos.SettlementRequest body) {
+    entitlementGuard.requireModule();
+    accessGuard.requireManage();
+    return settlementService.record(id, body);
   }
 
   @GetMapping("/channels/{id}/sellable")
