@@ -25,6 +25,7 @@ import com.shopmanagement.marketplace.repo.MarketplaceOrderRepository;
 import com.shopmanagement.marketplace.order.ErpOrderRequest;
 import com.shopmanagement.marketplace.order.OrderErpClient;
 import com.shopmanagement.marketplace.repo.MarketplaceProductMappingRepository;
+import com.shopmanagement.marketplace.stock.SellableQty;
 import com.shopmanagement.marketplace.stock.StockAvailabilityClient;
 import com.shopmanagement.marketplace.support.TenantIds;
 import com.shopmanagement.marketplace.web.dto.OrderDtos;
@@ -119,7 +120,7 @@ public class MarketplaceOrderService {
         markErpError(order, UNMAPPED_LINE);
         order = orderRepository.save(order);
       } else if (shouldBridge(channel) && order.getErpOrderId() == null) {
-        if (order.getStockReservationKey() != null) {
+        if (order.getStockReservationKey() != null && !SellableQty.isFefoKey(order.getStockReservationKey())) {
           markErpError(
               order,
               "Stock was already reserved for this marketplace order, so a second bill was not created.");
@@ -222,8 +223,8 @@ public class MarketplaceOrderService {
   }
 
   /**
-   * One retail order, reserved by order-service. This method does not call reserve-batch itself.
-   * A missing customer or product is stored on the marketplace row and does not create either.
+   * One unpaid retail bill. Stock is held with FEFO and committed only when the order ships.
+   * order-service is told not to use the POS reserve path.
    */
   private void linkRetailOrder(
       MarketplaceOrder order, MarketplaceChannel channel, List<MarketplaceOrderItem> items) {
@@ -242,6 +243,9 @@ public class MarketplaceOrderService {
         return;
       }
     }
+    if (!holdFefo(order, channel, items)) {
+      return;
+    }
     try {
       Long erpOrderId =
           orderErpClient.createRetailOrder(
@@ -259,6 +263,48 @@ public class MarketplaceOrderService {
       String message = ex.getMessage() == null ? "Sales bill was not created" : ex.getMessage();
       markErpError(order, message);
     }
+  }
+
+  private boolean holdFefo(
+      MarketplaceOrder order, MarketplaceChannel channel, List<MarketplaceOrderItem> items) {
+    if (SellableQty.isFefoKey(order.getStockReservationKey())) {
+      return true;
+    }
+    if (order.getStockReservationKey() != null) {
+      markErpError(
+          order, "Stock was already reserved for this marketplace order, so a second bill was not created.");
+      return false;
+    }
+    if (!properties.getStock().isEnabled()) {
+      markErpError(order, "Stock service is off, so no bill was created.");
+      return false;
+    }
+    String key = SellableQty.reservationKey(channel.getId(), order.getExternalOrderId());
+    try {
+      stockAvailabilityClient.reserveFefo(order.getTenantId(), order.getShopId(), key, quantities(items));
+      order.setStockReservationKey(key);
+      order.setStatus("RESERVED");
+      return true;
+    } catch (RuntimeException ex) {
+      String message = ex.getMessage() == null ? "FEFO reserve failed" : ex.getMessage();
+      if (message.length() > 180) {
+        message = message.substring(0, 180);
+      }
+      markErpError(order, message);
+      return false;
+    }
+  }
+
+  private static Map<Long, Integer> quantities(List<MarketplaceOrderItem> items) {
+    Map<Long, Integer> qty = new HashMap<>();
+    for (MarketplaceOrderItem item : items) {
+      if (item.getProductId() == null || item.getQuantity() == null) {
+        continue;
+      }
+      int units = item.getQuantity().setScale(0, RoundingMode.UP).intValueExact();
+      qty.merge(item.getProductId(), units, Integer::sum);
+    }
+    return qty;
   }
 
   private static Object configValue(MarketplaceChannel channel, String key) {
@@ -295,10 +341,12 @@ public class MarketplaceOrderService {
         orderRepository
             .findByIdAndTenantId(id, tenantId)
             .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Order not found"));
-    if ("CANCELLED".equals(order.getStatus())) {
+    if ("CANCELLED".equals(order.getStatus()) || "FULFILLED".equals(order.getStatus())) {
       return toOrderMap(order);
     }
-    if ("RESERVED".equals(order.getStatus())
+    if (SellableQty.isFefoKey(order.getStockReservationKey()) && properties.getStock().isEnabled()) {
+      stockAvailabilityClient.releaseFefo(tenantId, shopId, order.getStockReservationKey());
+    } else if ("RESERVED".equals(order.getStatus())
         && order.getStockReservationKey() != null
         && properties.getStock().isEnabled()) {
       Map<Long, Integer> releaseQty = new HashMap<>();
@@ -314,6 +362,32 @@ public class MarketplaceOrderService {
       }
     }
     order.setStatus("CANCELLED");
+    return toOrderMap(orderRepository.save(order));
+  }
+
+  @Transactional
+  public Map<String, Object> ship(Long id) {
+    String tenantId = TenantIds.require();
+    String shopId = requireShopId();
+    MarketplaceOrder order =
+        orderRepository
+            .findByIdAndTenantId(id, tenantId)
+            .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Order not found"));
+    if ("FULFILLED".equals(order.getStatus())) {
+      return toOrderMap(order);
+    }
+    if (order.getErpOrderId() == null) {
+      throw new ResponseStatusException(HttpStatus.CONFLICT, "Create the sales bill before shipping.");
+    }
+    if (!SellableQty.isFefoKey(order.getStockReservationKey())) {
+      throw new ResponseStatusException(HttpStatus.CONFLICT, "This order has no FEFO reservation to commit.");
+    }
+    if (!properties.getStock().isEnabled()) {
+      throw new ResponseStatusException(HttpStatus.CONFLICT, "Stock service is off, so the reservation was not committed.");
+    }
+    stockAvailabilityClient.commitFefo(tenantId, shopId, order.getStockReservationKey());
+    order.setStatus("FULFILLED");
+    clearErpError(order);
     return toOrderMap(orderRepository.save(order));
   }
 
@@ -353,7 +427,7 @@ public class MarketplaceOrderService {
     if (order.getErpOrderId() == null && hasUnmapped(items)) {
       markErpError(order, UNMAPPED_LINE);
     } else if (shouldBridge(channel) && order.getErpOrderId() == null) {
-      if (order.getStockReservationKey() != null) {
+      if (order.getStockReservationKey() != null && !SellableQty.isFefoKey(order.getStockReservationKey())) {
         markErpError(
             order,
             "Stock was already reserved for this marketplace order, so a second bill was not created.");

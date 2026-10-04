@@ -60,6 +60,7 @@ public class OrderErpClient {
               .header("X-Shop-Id", shopId == null ? "" : shopId)
               .header("X-Auth-Permissions", "MANAGE_ORDERS")
               .header("X-Idempotency-Key", key)
+              .header("X-Skip-Stock-Reserve", "true")
               .contentType(MediaType.APPLICATION_JSON)
               .body(body)
               .retrieve()

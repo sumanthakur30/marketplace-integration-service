@@ -1,5 +1,6 @@
 package com.shopmanagement.marketplace.stock;
 
+import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -11,6 +12,7 @@ import org.slf4j.LoggerFactory;
 import org.springframework.http.MediaType;
 import org.springframework.stereotype.Component;
 import org.springframework.web.client.RestClient;
+import org.springframework.web.util.UriUtils;
 
 import com.shopmanagement.marketplace.config.MarketplaceProperties;
 
@@ -76,6 +78,59 @@ public class StockAvailabilityClient {
 
   public void releaseBatch(String tenantId, String shopId, Map<Long, Integer> productQty) {
     postBatch("/stock/release-batch", tenantId, shopId, productQty);
+  }
+
+  public void reserveFefo(String tenantId, String shopId, String reservationKey, Map<Long, Integer> productQty) {
+    if (!properties.getStock().isEnabled() || productQty == null || productQty.isEmpty()) {
+      return;
+    }
+    List<Map<String, Object>> body = new ArrayList<>();
+    for (Map.Entry<Long, Integer> entry : productQty.entrySet()) {
+      if (entry.getKey() == null || entry.getValue() == null || entry.getValue() <= 0) {
+        continue;
+      }
+      Map<String, Object> line = new LinkedHashMap<>();
+      line.put("sourceLineId", entry.getKey());
+      line.put("productId", entry.getKey());
+      line.put("quantity", entry.getValue());
+      line.put("reservationKey", reservationKey);
+      body.add(line);
+    }
+    if (body.isEmpty()) {
+      return;
+    }
+    client()
+        .post()
+        .uri("/stock/reserve-fefo")
+        .contentType(MediaType.APPLICATION_JSON)
+        .headers(h -> applyTenant(h, tenantId, shopId))
+        .body(body)
+        .retrieve()
+        .toBodilessEntity();
+  }
+
+  public void commitFefo(String tenantId, String shopId, String reservationKey) {
+    postFefo("/stock/reservations/" + encodeKey(reservationKey) + "/commit", tenantId, shopId);
+  }
+
+  public void releaseFefo(String tenantId, String shopId, String reservationKey) {
+    postFefo("/stock/reservations/" + encodeKey(reservationKey) + "/release", tenantId, shopId);
+  }
+
+  private static String encodeKey(String reservationKey) {
+    return UriUtils.encodePathSegment(reservationKey == null ? "" : reservationKey, StandardCharsets.UTF_8);
+  }
+
+  private void postFefo(String path, String tenantId, String shopId) {
+    if (!properties.getStock().isEnabled()) {
+      return;
+    }
+    client()
+        .post()
+        .uri(path)
+        .headers(h -> applyTenant(h, tenantId, shopId))
+        .retrieve()
+        .toBodilessEntity();
   }
 
   private void postBatch(
