@@ -10,6 +10,7 @@ public class MarketplaceProperties {
   private final Orders orders = new Orders();
   private final Shop shop = new Shop();
   private final Channels channels = new Channels();
+  private final AmazonApi amazon = new AmazonApi();
   private final Inbound inbound = new Inbound();
 
   public Entitlement getEntitlement() {
@@ -30,6 +31,10 @@ public class MarketplaceProperties {
 
   public Channels getChannels() {
     return channels;
+  }
+
+  public AmazonApi getAmazon() {
+    return amazon;
   }
 
   public Inbound getInbound() {
@@ -273,6 +278,121 @@ public class MarketplaceProperties {
 
     public void setBaseUrl(String baseUrl) {
       this.baseUrl = baseUrl;
+    }
+  }
+
+  /** Platform Selling Partner API app. Seller refresh tokens stay on the channel, not here. */
+  public static class AmazonApi {
+    private String applicationId = "";
+    private String lwaClientId = "";
+    private String lwaClientSecret = "";
+    private String awsAccessKeyId = "";
+    private String awsSecretAccessKey = "";
+    private String region = "eu-west-1";
+    private String endpoint = "https://sellingpartnerapi-eu.amazon.com";
+    private String tokenUrl = "https://api.amazon.com/auth/o2/token";
+    private String authorizeUrl = "https://sellercentral.amazon.in/apps/authorize/consent";
+    private String marketplaceId = "A21TJRUUN4KGV";
+    private boolean draftConsent = true;
+
+    public String getApplicationId() {
+      return applicationId;
+    }
+
+    public void setApplicationId(String applicationId) {
+      this.applicationId = applicationId;
+    }
+
+    public String getLwaClientId() {
+      return lwaClientId;
+    }
+
+    public void setLwaClientId(String lwaClientId) {
+      this.lwaClientId = lwaClientId;
+    }
+
+    public String getLwaClientSecret() {
+      return lwaClientSecret;
+    }
+
+    public void setLwaClientSecret(String lwaClientSecret) {
+      this.lwaClientSecret = lwaClientSecret;
+    }
+
+    public String getAwsAccessKeyId() {
+      return awsAccessKeyId;
+    }
+
+    public void setAwsAccessKeyId(String awsAccessKeyId) {
+      this.awsAccessKeyId = awsAccessKeyId;
+    }
+
+    public String getAwsSecretAccessKey() {
+      return awsSecretAccessKey;
+    }
+
+    public void setAwsSecretAccessKey(String awsSecretAccessKey) {
+      this.awsSecretAccessKey = awsSecretAccessKey;
+    }
+
+    public String getRegion() {
+      return region;
+    }
+
+    public void setRegion(String region) {
+      this.region = region;
+    }
+
+    public String getEndpoint() {
+      return endpoint;
+    }
+
+    public void setEndpoint(String endpoint) {
+      this.endpoint = endpoint;
+    }
+
+    public String getTokenUrl() {
+      return tokenUrl;
+    }
+
+    public void setTokenUrl(String tokenUrl) {
+      this.tokenUrl = tokenUrl;
+    }
+
+    public String getAuthorizeUrl() {
+      return authorizeUrl;
+    }
+
+    public void setAuthorizeUrl(String authorizeUrl) {
+      this.authorizeUrl = authorizeUrl;
+    }
+
+    public String getMarketplaceId() {
+      return marketplaceId;
+    }
+
+    public void setMarketplaceId(String marketplaceId) {
+      this.marketplaceId = marketplaceId;
+    }
+
+    public boolean isDraftConsent() {
+      return draftConsent;
+    }
+
+    public void setDraftConsent(boolean draftConsent) {
+      this.draftConsent = draftConsent;
+    }
+
+    public boolean lwaReady() {
+      return text(lwaClientId) && text(lwaClientSecret);
+    }
+
+    public boolean signingReady() {
+      return lwaReady() && text(awsAccessKeyId) && text(awsSecretAccessKey) && text(endpoint);
+    }
+
+    private static boolean text(String value) {
+      return value != null && !value.isBlank();
     }
   }
 
