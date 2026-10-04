@@ -25,10 +25,14 @@ public class TenantContextFilter extends OncePerRequestFilter {
   public static final String TENANT_ID_HEADER = "X-Tenant-Id";
   public static final String SHOP_ID_HEADER = "X-Shop-Id";
   public static final String USER_ID_HEADER = "X-User-Id";
+  public static final String ROLE_HEADER = "X-Auth-Role";
+  public static final String PERMISSIONS_HEADER = "X-Auth-Permissions";
 
   private static final ThreadLocal<String> TENANT = new ThreadLocal<>();
   private static final ThreadLocal<String> SHOP = new ThreadLocal<>();
   private static final ThreadLocal<String> USER = new ThreadLocal<>();
+  private static final ThreadLocal<String> ROLE = new ThreadLocal<>();
+  private static final ThreadLocal<String> PERMISSIONS = new ThreadLocal<>();
 
   public static String getCurrentTenantId() {
     return TENANT.get();
@@ -42,15 +46,27 @@ public class TenantContextFilter extends OncePerRequestFilter {
     return USER.get();
   }
 
+  public static String getCurrentRole() {
+    return ROLE.get();
+  }
+
+  public static String getCurrentPermissions() {
+    return PERMISSIONS.get();
+  }
+
   /** Bind tenant for public webhook processing (must clear in finally). */
   public static void runWithTenant(String tenantId, String shopId, Runnable action) {
     String prevTenant = TENANT.get();
     String prevShop = SHOP.get();
     String prevUser = USER.get();
+    String prevRole = ROLE.get();
+    String prevPermissions = PERMISSIONS.get();
     try {
       TENANT.set(tenantId);
       SHOP.set(shopId);
       USER.set(null);
+      ROLE.set(null);
+      PERMISSIONS.set(null);
       if (tenantId != null) {
         MDC.put("tenantId", tenantId);
       }
@@ -70,6 +86,16 @@ public class TenantContextFilter extends OncePerRequestFilter {
         USER.set(prevUser);
       } else {
         USER.remove();
+      }
+      if (prevRole != null) {
+        ROLE.set(prevRole);
+      } else {
+        ROLE.remove();
+      }
+      if (prevPermissions != null) {
+        PERMISSIONS.set(prevPermissions);
+      } else {
+        PERMISSIONS.remove();
       }
       if (prevTenant != null) {
         MDC.put("tenantId", prevTenant);
@@ -104,12 +130,16 @@ public class TenantContextFilter extends OncePerRequestFilter {
       TENANT.set(tenantId);
       SHOP.set(blankToNull(request.getHeader(SHOP_ID_HEADER)));
       USER.set(blankToNull(request.getHeader(USER_ID_HEADER)));
+      ROLE.set(blankToNull(request.getHeader(ROLE_HEADER)));
+      PERMISSIONS.set(blankToNull(request.getHeader(PERMISSIONS_HEADER)));
       MDC.put("tenantId", tenantId);
       filterChain.doFilter(request, response);
     } finally {
       TENANT.remove();
       SHOP.remove();
       USER.remove();
+      ROLE.remove();
+      PERMISSIONS.remove();
       MDC.remove("tenantId");
     }
   }

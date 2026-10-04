@@ -24,6 +24,8 @@ import com.shopmanagement.marketplace.domain.MarketplaceProductMapping;
 import com.shopmanagement.marketplace.repo.MarketplaceChannelRepository;
 import com.shopmanagement.marketplace.repo.MarketplaceInventorySyncRepository;
 import com.shopmanagement.marketplace.repo.MarketplaceProductMappingRepository;
+import com.shopmanagement.marketplace.security.ChannelSecretStore;
+import com.shopmanagement.marketplace.security.ChannelSecrets;
 import com.shopmanagement.marketplace.stock.StockAvailabilityClient;
 import com.shopmanagement.marketplace.support.TenantIds;
 
@@ -38,6 +40,7 @@ public class MarketplaceInventorySyncService {
   private final MarketplaceChannelRepository channelRepository;
   private final MarketplaceInventorySyncRepository inventorySyncRepository;
   private final StockAvailabilityClient stockAvailabilityClient;
+  private final ChannelSecretStore secretStore;
   private final Map<MarketplaceChannelCode, MarketplaceChannelAdapter> adaptersByCode;
 
   public MarketplaceInventorySyncService(
@@ -45,11 +48,13 @@ public class MarketplaceInventorySyncService {
       MarketplaceChannelRepository channelRepository,
       MarketplaceInventorySyncRepository inventorySyncRepository,
       StockAvailabilityClient stockAvailabilityClient,
+      ChannelSecretStore secretStore,
       List<MarketplaceChannelAdapter> adapters) {
     this.mappingRepository = mappingRepository;
     this.channelRepository = channelRepository;
     this.inventorySyncRepository = inventorySyncRepository;
     this.stockAvailabilityClient = stockAvailabilityClient;
+    this.secretStore = secretStore;
     this.adaptersByCode =
         adapters.stream()
             .collect(Collectors.toMap(MarketplaceChannelAdapter::code, Function.identity()));
@@ -165,9 +170,9 @@ public class MarketplaceInventorySyncService {
             mapping.getChannelListingId(),
             mapping.getChannelSku(),
             pushQty.doubleValue(),
-            channel.getConfigJson(),
+            secretStore.adapterConfig(channel.getConfigJson(), channel.getCredentialsCiphertext()),
             mapping.getAttributes());
-    Map<String, Object> pushResult = adapter.pushInventory(req);
+    Map<String, Object> pushResult = ChannelSecrets.scrub(adapter.pushInventory(req));
     boolean accepted = Boolean.TRUE.equals(pushResult.get("accepted"));
     String status = accepted ? "SYNCED" : "ERROR";
     String error =
