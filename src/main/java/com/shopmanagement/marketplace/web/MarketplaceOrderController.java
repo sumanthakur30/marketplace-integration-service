@@ -11,6 +11,7 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
 import com.shopmanagement.marketplace.entitlement.MarketplaceEntitlementGuard;
+import com.shopmanagement.marketplace.security.MarketplaceAccessGuard;
 import com.shopmanagement.marketplace.service.MarketplaceOrderService;
 import com.shopmanagement.marketplace.web.dto.OrderDtos;
 
@@ -19,35 +20,43 @@ import com.shopmanagement.marketplace.web.dto.OrderDtos;
 public class MarketplaceOrderController {
 
   private final MarketplaceEntitlementGuard entitlementGuard;
+  private final MarketplaceAccessGuard accessGuard;
   private final MarketplaceOrderService orderService;
 
   public MarketplaceOrderController(
-      MarketplaceEntitlementGuard entitlementGuard, MarketplaceOrderService orderService) {
+      MarketplaceEntitlementGuard entitlementGuard,
+      MarketplaceAccessGuard accessGuard,
+      MarketplaceOrderService orderService) {
     this.entitlementGuard = entitlementGuard;
+    this.accessGuard = accessGuard;
     this.orderService = orderService;
   }
 
   @GetMapping
   public List<Map<String, Object>> list() {
     entitlementGuard.requireModule();
+    accessGuard.requireOrderView();
     return orderService.listOrders();
   }
 
   @GetMapping("/{id}")
   public Map<String, Object> get(@PathVariable Long id) {
     entitlementGuard.requireModule();
+    accessGuard.requireOrderView();
     return orderService.getOrder(id);
   }
 
   @PostMapping("/ingest")
   public Map<String, Object> ingest(@RequestBody OrderDtos.IngestRequest body) {
     entitlementGuard.requireModule();
+    accessGuard.requireOrderManage();
     return orderService.ingest(body);
   }
 
   @PostMapping("/{id}/cancel")
   public Map<String, Object> cancel(@PathVariable Long id) {
     entitlementGuard.requireModule();
+    accessGuard.requireOrderManage();
     return orderService.cancel(id);
   }
 }

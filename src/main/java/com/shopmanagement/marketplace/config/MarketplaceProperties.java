@@ -7,6 +7,7 @@ public class MarketplaceProperties {
 
   private final Entitlement entitlement = new Entitlement();
   private final Stock stock = new Stock();
+  private final Orders orders = new Orders();
   private final Shop shop = new Shop();
   private final Channels channels = new Channels();
   private final Inbound inbound = new Inbound();
@@ -17,6 +18,10 @@ public class MarketplaceProperties {
 
   public Stock getStock() {
     return stock;
+  }
+
+  public Orders getOrders() {
+    return orders;
   }
 
   public Shop getShop() {
@@ -246,6 +251,28 @@ public class MarketplaceProperties {
 
     public void setInventoryEndpoint(String inventoryEndpoint) {
       this.inventoryEndpoint = inventoryEndpoint;
+    }
+  }
+
+  public static class Orders {
+    /** When true, ingest may create one retail order. The channel flag orderSyncEnabled still defaults off. */
+    private boolean bridgeEnabled = true;
+    private String baseUrl = "http://localhost:8083";
+
+    public boolean isBridgeEnabled() {
+      return bridgeEnabled;
+    }
+
+    public void setBridgeEnabled(boolean bridgeEnabled) {
+      this.bridgeEnabled = bridgeEnabled;
+    }
+
+    public String getBaseUrl() {
+      return baseUrl;
+    }
+
+    public void setBaseUrl(String baseUrl) {
+      this.baseUrl = baseUrl;
     }
   }
 
