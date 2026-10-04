@@ -19,9 +19,11 @@ import com.shopmanagement.marketplace.entitlement.MarketplaceEntitlementGuard;
 import com.shopmanagement.marketplace.mapping.SkuMatch;
 import com.shopmanagement.marketplace.security.ChannelSecrets;
 import com.shopmanagement.marketplace.security.MarketplaceAccessGuard;
+import com.shopmanagement.marketplace.service.MarketplaceAmazonService;
 import com.shopmanagement.marketplace.service.MarketplaceCatalogService;
 import com.shopmanagement.marketplace.service.MarketplaceSellableService;
 import com.shopmanagement.marketplace.web.dto.AccountDtos;
+import com.shopmanagement.marketplace.web.dto.AmazonDtos;
 import com.shopmanagement.marketplace.web.dto.ChannelDtos;
 import com.shopmanagement.marketplace.web.dto.MappingDtos;
 
@@ -33,16 +35,19 @@ public class MarketplaceCatalogController {
   private final MarketplaceAccessGuard accessGuard;
   private final MarketplaceCatalogService catalogService;
   private final MarketplaceSellableService sellableService;
+  private final MarketplaceAmazonService amazonService;
 
   public MarketplaceCatalogController(
       MarketplaceEntitlementGuard entitlementGuard,
       MarketplaceAccessGuard accessGuard,
       MarketplaceCatalogService catalogService,
-      MarketplaceSellableService sellableService) {
+      MarketplaceSellableService sellableService,
+      MarketplaceAmazonService amazonService) {
     this.entitlementGuard = entitlementGuard;
     this.accessGuard = accessGuard;
     this.catalogService = catalogService;
     this.sellableService = sellableService;
+    this.amazonService = amazonService;
   }
 
   @GetMapping("/accounts")
@@ -103,6 +108,29 @@ public class MarketplaceCatalogController {
     entitlementGuard.requireModule();
     accessGuard.requireConnect();
     return catalogService.disconnect(id);
+  }
+
+  @GetMapping("/channels/{id}/amazon/authorize")
+  public Map<String, Object> amazonAuthorize(@PathVariable Long id) {
+    entitlementGuard.requireModule();
+    accessGuard.requireConnect();
+    return amazonService.authorizeUrl(id);
+  }
+
+  @PostMapping("/channels/{id}/amazon/authorize")
+  public Map<String, Object> amazonAuthorizeComplete(
+      @PathVariable Long id, @RequestBody AmazonDtos.AuthorizeComplete body) {
+    entitlementGuard.requireModule();
+    accessGuard.requireConnect();
+    return amazonService.completeAuthorization(
+        id, body == null ? null : body.code(), body == null ? null : body.state(), body == null ? null : body.sellingPartnerId());
+  }
+
+  @PostMapping("/channels/{id}/amazon/pull")
+  public Map<String, Object> amazonPull(@PathVariable Long id) {
+    entitlementGuard.requireModule();
+    accessGuard.requireOrderManage();
+    return amazonService.pullOrders(id);
   }
 
   @GetMapping("/channels/{id}/sellable")
