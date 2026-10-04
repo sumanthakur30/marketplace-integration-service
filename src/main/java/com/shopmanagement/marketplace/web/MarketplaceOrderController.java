@@ -13,6 +13,8 @@ import org.springframework.web.bind.annotation.RestController;
 import com.shopmanagement.marketplace.entitlement.MarketplaceEntitlementGuard;
 import com.shopmanagement.marketplace.security.MarketplaceAccessGuard;
 import com.shopmanagement.marketplace.service.MarketplaceOrderService;
+import com.shopmanagement.marketplace.service.MarketplaceReturnService;
+import com.shopmanagement.marketplace.web.dto.LaterDtos;
 import com.shopmanagement.marketplace.web.dto.OrderDtos;
 
 @RestController
@@ -22,14 +24,17 @@ public class MarketplaceOrderController {
   private final MarketplaceEntitlementGuard entitlementGuard;
   private final MarketplaceAccessGuard accessGuard;
   private final MarketplaceOrderService orderService;
+  private final MarketplaceReturnService returnService;
 
   public MarketplaceOrderController(
       MarketplaceEntitlementGuard entitlementGuard,
       MarketplaceAccessGuard accessGuard,
-      MarketplaceOrderService orderService) {
+      MarketplaceOrderService orderService,
+      MarketplaceReturnService returnService) {
     this.entitlementGuard = entitlementGuard;
     this.accessGuard = accessGuard;
     this.orderService = orderService;
+    this.returnService = returnService;
   }
 
   @GetMapping
@@ -58,6 +63,13 @@ public class MarketplaceOrderController {
     entitlementGuard.requireModule();
     accessGuard.requireOrderManage();
     return orderService.ship(id);
+  }
+
+  @PostMapping("/{id}/return")
+  public Map<String, Object> recordReturn(@PathVariable Long id, @RequestBody(required = false) LaterDtos.ReturnRequest body) {
+    entitlementGuard.requireModule();
+    accessGuard.requireOrderManage();
+    return returnService.record(id, body == null ? null : body.externalReturnId(), body == null ? null : body.reason());
   }
 
   @PostMapping("/{id}/apply-mappings")
