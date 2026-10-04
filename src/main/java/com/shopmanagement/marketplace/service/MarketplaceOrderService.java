@@ -32,6 +32,9 @@ import com.shopmanagement.marketplace.web.dto.OrderDtos;
 @Service
 public class MarketplaceOrderService {
 
+  private static final String UNMAPPED_LINE =
+      "A line has no product. Map the SKU before a bill is created.";
+
   private final MarketplaceChannelRepository channelRepository;
   private final MarketplaceProductMappingRepository mappingRepository;
   private final MarketplaceOrderRepository orderRepository;
@@ -109,14 +112,19 @@ public class MarketplaceOrderService {
         orderRepository.findByChannelIdAndExternalOrderId(channel.getId(), req.externalOrderId().trim());
     if (existing.isPresent()) {
       MarketplaceOrder order = existing.get();
-      if (shouldBridge(channel) && order.getErpOrderId() == null) {
+      List<MarketplaceOrderItem> items =
+          orderItemRepository.findByOrderIdOrderByIdAsc(order.getId());
+      refreshMappedProducts(channel.getId(), items);
+      if (order.getErpOrderId() == null && hasUnmapped(items)) {
+        markErpError(order, UNMAPPED_LINE);
+        order = orderRepository.save(order);
+      } else if (shouldBridge(channel) && order.getErpOrderId() == null) {
         if (order.getStockReservationKey() != null) {
           markErpError(
               order,
               "Stock was already reserved for this marketplace order, so a second bill was not created.");
         } else {
-          linkRetailOrder(
-              order, channel, orderItemRepository.findByOrderIdOrderByIdAsc(order.getId()));
+          linkRetailOrder(order, channel, items);
         }
         order = orderRepository.save(order);
       }
@@ -157,7 +165,7 @@ public class MarketplaceOrderService {
       item.setOrderId(order.getId());
       item.setMappingId(resolved.mappingId());
       item.setProductId(resolved.productId());
-      item.setChannelSku(line.channelSku());
+      item.setChannelSku(channelSku(line));
       item.setTitle(line.title());
       item.setQuantity(resolved.quantity());
       item.setUnitPrice(line.unitPrice());
@@ -168,7 +176,9 @@ public class MarketplaceOrderService {
       }
     }
 
-    if (shouldBridge(channel)) {
+    if (hasUnmapped(savedItems)) {
+      markErpError(order, UNMAPPED_LINE);
+    } else if (shouldBridge(channel)) {
       linkRetailOrder(order, channel, savedItems);
     } else if (shouldReserve(req, reserveQty)) {
       String reservationKey =
@@ -228,7 +238,7 @@ public class MarketplaceOrderService {
     }
     for (MarketplaceOrderItem item : items) {
       if (item.getProductId() == null) {
-        markErpError(order, "A line has no product. Map the SKU before a bill is created.");
+        markErpError(order, UNMAPPED_LINE);
         return;
       }
     }
@@ -327,6 +337,71 @@ public class MarketplaceOrderService {
     return cancel(order.getId());
   }
 
+  @Transactional
+  public Map<String, Object> applyMappings(Long id) {
+    String tenantId = TenantIds.require();
+    MarketplaceOrder order =
+        orderRepository
+            .findByIdAndTenantId(id, tenantId)
+            .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Order not found"));
+    MarketplaceChannel channel =
+        channelRepository
+            .findByIdAndTenantIdAndDeletedAtIsNull(order.getChannelId(), tenantId)
+            .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Channel not found"));
+    List<MarketplaceOrderItem> items = orderItemRepository.findByOrderIdOrderByIdAsc(order.getId());
+    refreshMappedProducts(channel.getId(), items);
+    if (order.getErpOrderId() == null && hasUnmapped(items)) {
+      markErpError(order, UNMAPPED_LINE);
+    } else if (shouldBridge(channel) && order.getErpOrderId() == null) {
+      if (order.getStockReservationKey() != null) {
+        markErpError(
+            order,
+            "Stock was already reserved for this marketplace order, so a second bill was not created.");
+      } else {
+        linkRetailOrder(order, channel, items);
+      }
+    }
+    return toOrderMap(orderRepository.save(order));
+  }
+
+  private void refreshMappedProducts(Long channelId, List<MarketplaceOrderItem> items) {
+    for (MarketplaceOrderItem item : items) {
+      if (item.getProductId() != null || item.getChannelSku() == null || item.getChannelSku().isBlank()) {
+        continue;
+      }
+      String sku = item.getChannelSku().trim();
+      var mapping = mappingRepository.findByChannelIdAndChannelSkuAndDeletedAtIsNull(channelId, sku);
+      if (mapping.isEmpty()) {
+        mapping = mappingRepository.findByChannelIdAndChannelListingIdAndDeletedAtIsNull(channelId, sku);
+      }
+      if (mapping.isEmpty()) {
+        continue;
+      }
+      item.setMappingId(mapping.get().getId());
+      item.setProductId(mapping.get().getProductId());
+      orderItemRepository.save(item);
+    }
+  }
+
+  private static boolean hasUnmapped(List<MarketplaceOrderItem> items) {
+    for (MarketplaceOrderItem item : items) {
+      if (item.getProductId() == null) {
+        return true;
+      }
+    }
+    return false;
+  }
+
+  private static String channelSku(OrderDtos.Line line) {
+    if (line.channelSku() != null && !line.channelSku().isBlank()) {
+      return line.channelSku().trim();
+    }
+    if (line.channelListingId() != null && !line.channelListingId().isBlank()) {
+      return line.channelListingId().trim();
+    }
+    return null;
+  }
+
   private ResolvedLine resolveLine(Long channelId, OrderDtos.Line line) {
     if (line == null || line.quantity() == null || line.quantity().signum() <= 0) {
       throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Line quantity must be > 0");
@@ -352,11 +427,6 @@ public class MarketplaceOrderService {
         mappingId = mapping.get().getId();
         productId = mapping.get().getProductId();
       }
-    }
-    if (productId == null) {
-      throw new ResponseStatusException(
-          HttpStatus.BAD_REQUEST,
-          "Unable to resolve productId (provide productId or mapped channelListingId/channelSku)");
     }
     return new ResolvedLine(mappingId, productId, line.quantity());
   }

@@ -16,6 +16,7 @@ import org.springframework.web.bind.annotation.ResponseStatus;
 import org.springframework.web.bind.annotation.RestController;
 
 import com.shopmanagement.marketplace.entitlement.MarketplaceEntitlementGuard;
+import com.shopmanagement.marketplace.mapping.SkuMatch;
 import com.shopmanagement.marketplace.security.ChannelSecrets;
 import com.shopmanagement.marketplace.security.MarketplaceAccessGuard;
 import com.shopmanagement.marketplace.service.MarketplaceCatalogService;
@@ -103,14 +104,31 @@ public class MarketplaceCatalogController {
   @GetMapping("/mappings")
   public List<Map<String, Object>> listMappings(@RequestParam(required = false) Long channelId) {
     entitlementGuard.requireModule();
-    accessGuard.requireView();
+    accessGuard.requireMappingView();
     return catalogService.listMappings(channelId);
+  }
+
+  @PostMapping("/mappings/suggest")
+  public Map<String, Object> suggestMapping(@RequestBody MappingDtos.SuggestRequest body) {
+    entitlementGuard.requireModule();
+    accessGuard.requireMappingView();
+    String sku = body == null ? null : body.channelSku();
+    java.util.List<SkuMatch.ProductRef> products = new java.util.ArrayList<>();
+    if (body != null && body.products() != null) {
+      for (MappingDtos.SkuMatchProduct product : body.products()) {
+        if (product == null) {
+          continue;
+        }
+        products.add(new SkuMatch.ProductRef(product.productId(), product.code(), product.barcode()));
+      }
+    }
+    return SkuMatch.toMap(SkuMatch.match(sku, products));
   }
 
   @PostMapping("/mappings")
   public Map<String, Object> upsertMapping(@RequestBody MappingDtos.UpsertRequest body) {
     entitlementGuard.requireModule();
-    accessGuard.requireManage();
+    accessGuard.requireProductMapping();
     return catalogService.upsertMapping(body);
   }
 
@@ -118,7 +136,7 @@ public class MarketplaceCatalogController {
   @ResponseStatus(HttpStatus.NO_CONTENT)
   public void deleteMapping(@PathVariable Long id) {
     entitlementGuard.requireModule();
-    accessGuard.requireManage();
+    accessGuard.requireProductMapping();
     catalogService.softDeleteMapping(id);
   }
 
