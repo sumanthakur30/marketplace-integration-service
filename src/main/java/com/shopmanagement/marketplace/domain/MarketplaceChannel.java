@@ -42,6 +42,12 @@ public class MarketplaceChannel {
   @Column(name = "credentials_ref", length = 256)
   private String credentialsRef;
 
+  @Column(name = "credentials_ciphertext")
+  private String credentialsCiphertext;
+
+  @Column(name = "connection_status", nullable = false, length = 32)
+  private String connectionStatus = "DISCONNECTED";
+
   @JdbcTypeCode(SqlTypes.JSON)
   @Column(name = "config_json", nullable = false, columnDefinition = "jsonb")
   private Map<String, Object> configJson = new LinkedHashMap<>();
@@ -65,6 +71,9 @@ public class MarketplaceChannel {
     updatedAt = now;
     if (configJson == null) {
       configJson = new LinkedHashMap<>();
+    }
+    if (connectionStatus == null || connectionStatus.isBlank()) {
+      connectionStatus = "DISCONNECTED";
     }
   }
 
@@ -127,6 +136,22 @@ public class MarketplaceChannel {
 
   public void setCredentialsRef(String credentialsRef) {
     this.credentialsRef = credentialsRef;
+  }
+
+  public String getCredentialsCiphertext() {
+    return credentialsCiphertext;
+  }
+
+  public void setCredentialsCiphertext(String credentialsCiphertext) {
+    this.credentialsCiphertext = credentialsCiphertext;
+  }
+
+  public String getConnectionStatus() {
+    return connectionStatus;
+  }
+
+  public void setConnectionStatus(String connectionStatus) {
+    this.connectionStatus = connectionStatus;
   }
 
   public Map<String, Object> getConfigJson() {

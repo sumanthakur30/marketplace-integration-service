@@ -2,7 +2,7 @@ package com.shopmanagement.marketplace.channel;
 
 import java.util.Map;
 
-/** Context for channel inventory push — credentials come from marketplace_channel.config_json. */
+/** Context for channel inventory push. Secrets are overlaid from ciphertext for the adapter only. */
 public record InventoryPushRequest(
     String listingId,
     String channelSku,
