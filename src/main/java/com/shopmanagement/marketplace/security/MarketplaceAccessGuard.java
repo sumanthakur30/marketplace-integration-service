@@ -16,6 +16,32 @@ public class MarketplaceAccessGuard {
         "MARKETPLACE_ORDER_VIEW");
   }
 
+  public void requireMappingView() {
+    MarketplaceAccessCheck.require(
+        TenantContextFilter.getCurrentRole(),
+        TenantContextFilter.getCurrentPermissions(),
+        "MARKETPLACE_VIEW",
+        "MARKETPLACE_MANAGE",
+        "MARKETPLACE_PRODUCT_MAPPING");
+  }
+
+  public void requireProductMapping() {
+    MarketplaceAccessCheck.require(
+        TenantContextFilter.getCurrentRole(),
+        TenantContextFilter.getCurrentPermissions(),
+        "MARKETPLACE_PRODUCT_MAPPING",
+        "MARKETPLACE_MANAGE");
+  }
+
+  public void requireApplyMappings() {
+    MarketplaceAccessCheck.require(
+        TenantContextFilter.getCurrentRole(),
+        TenantContextFilter.getCurrentPermissions(),
+        "MARKETPLACE_PRODUCT_MAPPING",
+        "MARKETPLACE_ORDER_MANAGE",
+        "MARKETPLACE_MANAGE");
+  }
+
   public void requireManage() {
     MarketplaceAccessCheck.require(
         TenantContextFilter.getCurrentRole(),
