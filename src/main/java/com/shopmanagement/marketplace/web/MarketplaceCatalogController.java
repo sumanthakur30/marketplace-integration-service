@@ -20,6 +20,7 @@ import com.shopmanagement.marketplace.mapping.SkuMatch;
 import com.shopmanagement.marketplace.security.ChannelSecrets;
 import com.shopmanagement.marketplace.security.MarketplaceAccessGuard;
 import com.shopmanagement.marketplace.service.MarketplaceCatalogService;
+import com.shopmanagement.marketplace.service.MarketplaceSellableService;
 import com.shopmanagement.marketplace.web.dto.AccountDtos;
 import com.shopmanagement.marketplace.web.dto.ChannelDtos;
 import com.shopmanagement.marketplace.web.dto.MappingDtos;
@@ -31,14 +32,17 @@ public class MarketplaceCatalogController {
   private final MarketplaceEntitlementGuard entitlementGuard;
   private final MarketplaceAccessGuard accessGuard;
   private final MarketplaceCatalogService catalogService;
+  private final MarketplaceSellableService sellableService;
 
   public MarketplaceCatalogController(
       MarketplaceEntitlementGuard entitlementGuard,
       MarketplaceAccessGuard accessGuard,
-      MarketplaceCatalogService catalogService) {
+      MarketplaceCatalogService catalogService,
+      MarketplaceSellableService sellableService) {
     this.entitlementGuard = entitlementGuard;
     this.accessGuard = accessGuard;
     this.catalogService = catalogService;
+    this.sellableService = sellableService;
   }
 
   @GetMapping("/accounts")
@@ -99,6 +103,13 @@ public class MarketplaceCatalogController {
     entitlementGuard.requireModule();
     accessGuard.requireConnect();
     return catalogService.disconnect(id);
+  }
+
+  @GetMapping("/channels/{id}/sellable")
+  public List<Map<String, Object>> sellable(@PathVariable Long id) {
+    entitlementGuard.requireModule();
+    accessGuard.requireMappingView();
+    return sellableService.quote(id);
   }
 
   @GetMapping("/mappings")

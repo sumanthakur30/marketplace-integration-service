@@ -53,6 +53,13 @@ public class MarketplaceOrderController {
     return orderService.ingest(body);
   }
 
+  @PostMapping("/{id}/ship")
+  public Map<String, Object> ship(@PathVariable Long id) {
+    entitlementGuard.requireModule();
+    accessGuard.requireOrderManage();
+    return orderService.ship(id);
+  }
+
   @PostMapping("/{id}/apply-mappings")
   public Map<String, Object> applyMappings(@PathVariable Long id) {
     entitlementGuard.requireModule();
