@@ -115,6 +115,8 @@ public class StockAvailabilityClient {
       org.springframework.http.HttpHeaders headers, String tenantId, String shopId) {
     headers.add("X-Tenant-Id", tenantId);
     headers.add("X-Shop-Id", shopId == null ? "" : shopId);
+    // Same pattern as order-service sales-return / lab clients — stock mutators require these.
+    headers.add("X-Auth-Permissions", "MANAGE_STOCKS,MANAGE_ORDERS");
     String key = properties.getStock().getInternalApiKey();
     if (key != null && !key.isBlank()) {
       headers.add("X-Internal-Api-Key", key);
