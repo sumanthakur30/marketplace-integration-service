@@ -25,6 +25,7 @@ import com.shopmanagement.marketplace.repo.MarketplaceOrderRepository;
 import com.shopmanagement.marketplace.order.ErpOrderRequest;
 import com.shopmanagement.marketplace.order.OrderErpClient;
 import com.shopmanagement.marketplace.repo.MarketplaceProductMappingRepository;
+import com.shopmanagement.marketplace.stock.MarketplaceStockPolicy;
 import com.shopmanagement.marketplace.stock.SellableQty;
 import com.shopmanagement.marketplace.stock.StockAvailabilityClient;
 import com.shopmanagement.marketplace.support.TenantIds;
@@ -113,22 +114,17 @@ public class MarketplaceOrderService {
         orderRepository.findByChannelIdAndExternalOrderId(channel.getId(), req.externalOrderId().trim());
     if (existing.isPresent()) {
       MarketplaceOrder order = existing.get();
+      if (req.payload() != null) {
+        Map<String, Object> payload =
+            order.getPayloadJson() == null ? new LinkedHashMap<>() : new LinkedHashMap<>(order.getPayloadJson());
+        payload.putAll(req.payload());
+        order.setPayloadJson(payload);
+      }
       List<MarketplaceOrderItem> items =
           orderItemRepository.findByOrderIdOrderByIdAsc(order.getId());
       refreshMappedProducts(channel.getId(), items);
-      if (order.getErpOrderId() == null && hasUnmapped(items)) {
-        markErpError(order, UNMAPPED_LINE);
-        order = orderRepository.save(order);
-      } else if (shouldBridge(channel) && order.getErpOrderId() == null) {
-        if (order.getStockReservationKey() != null && !SellableQty.isFefoKey(order.getStockReservationKey())) {
-          markErpError(
-              order,
-              "Stock was already reserved for this marketplace order, so a second bill was not created.");
-        } else {
-          linkRetailOrder(order, channel, items);
-        }
-        order = orderRepository.save(order);
-      }
+      applySaleStock(order, channel, items);
+      order = orderRepository.save(order);
       Map<String, Object> out = toOrderMap(order);
       out.put("idempotent", true);
       out.put(
@@ -181,6 +177,17 @@ public class MarketplaceOrderService {
       markErpError(order, UNMAPPED_LINE);
     } else if (shouldBridge(channel)) {
       linkRetailOrder(order, channel, savedItems);
+      if (MarketplaceStockPolicy.commitsStock(MarketplaceStockPolicy.externalStatus(order.getPayloadJson()))
+          && "RESERVED".equals(order.getStatus())) {
+        commitShipped(order);
+      }
+    } else if (MarketplaceStockPolicy.holdsStock(MarketplaceStockPolicy.externalStatus(order.getPayloadJson()))) {
+      holdSoldStock(order, channel, savedItems);
+      if (MarketplaceStockPolicy.commitsStock(MarketplaceStockPolicy.externalStatus(order.getPayloadJson()))) {
+        commitShipped(order);
+      }
+    } else if (MarketplaceStockPolicy.releasesStock(MarketplaceStockPolicy.externalStatus(order.getPayloadJson()))) {
+      order.setStatus("CANCELLED");
     } else if (shouldReserve(req, reserveQty)) {
       String reservationKey =
           "MP-" + tenantId + "-" + channelCode + "-" + order.getExternalOrderId();
@@ -346,6 +353,7 @@ public class MarketplaceOrderService {
     }
     if (SellableQty.isFefoKey(order.getStockReservationKey()) && properties.getStock().isEnabled()) {
       stockAvailabilityClient.releaseFefo(tenantId, shopId, order.getStockReservationKey());
+      order.setStockReservationKey(null);
     } else if ("RESERVED".equals(order.getStatus())
         && order.getStockReservationKey() != null
         && properties.getStock().isEnabled()) {
@@ -424,9 +432,30 @@ public class MarketplaceOrderService {
             .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Channel not found"));
     List<MarketplaceOrderItem> items = orderItemRepository.findByOrderIdOrderByIdAsc(order.getId());
     refreshMappedProducts(channel.getId(), items);
-    if (order.getErpOrderId() == null && hasUnmapped(items)) {
+    applySaleStock(order, channel, items);
+    return toOrderMap(orderRepository.save(order));
+  }
+
+  /**
+   * Holds or commits stock for a confirmed marketplace sale. A retail bill is created only when
+   * order sync is enabled. Repeating the same order does not reserve or commit twice.
+   */
+  private void applySaleStock(
+      MarketplaceOrder order, MarketplaceChannel channel, List<MarketplaceOrderItem> items) {
+    if ("FULFILLED".equals(order.getStatus())) {
+      return;
+    }
+    String external = MarketplaceStockPolicy.externalStatus(order.getPayloadJson());
+    if (MarketplaceStockPolicy.releasesStock(external)) {
+      releaseHold(order);
+      order.setStatus("CANCELLED");
+      return;
+    }
+    if (hasUnmapped(items)) {
       markErpError(order, UNMAPPED_LINE);
-    } else if (shouldBridge(channel) && order.getErpOrderId() == null) {
+      return;
+    }
+    if (shouldBridge(channel) && order.getErpOrderId() == null) {
       if (order.getStockReservationKey() != null && !SellableQty.isFefoKey(order.getStockReservationKey())) {
         markErpError(
             order,
@@ -434,8 +463,40 @@ public class MarketplaceOrderService {
       } else {
         linkRetailOrder(order, channel, items);
       }
+    } else if (MarketplaceStockPolicy.holdsStock(external) && order.getStockReservationKey() == null) {
+      holdSoldStock(order, channel, items);
     }
-    return toOrderMap(orderRepository.save(order));
+    if (MarketplaceStockPolicy.commitsStock(external)) {
+      commitShipped(order);
+    }
+  }
+
+  private void holdSoldStock(
+      MarketplaceOrder order, MarketplaceChannel channel, List<MarketplaceOrderItem> items) {
+    if (order.getStockReservationKey() != null || "FULFILLED".equals(order.getStatus())) {
+      return;
+    }
+    holdFefo(order, channel, items);
+  }
+
+  private void commitShipped(MarketplaceOrder order) {
+    if ("FULFILLED".equals(order.getStatus()) || !SellableQty.isFefoKey(order.getStockReservationKey())) {
+      return;
+    }
+    if (!properties.getStock().isEnabled()) {
+      return;
+    }
+    stockAvailabilityClient.commitFefo(order.getTenantId(), order.getShopId(), order.getStockReservationKey());
+    order.setStatus("FULFILLED");
+    clearErpError(order);
+  }
+
+  private void releaseHold(MarketplaceOrder order) {
+    if (!SellableQty.isFefoKey(order.getStockReservationKey()) || !properties.getStock().isEnabled()) {
+      return;
+    }
+    stockAvailabilityClient.releaseFefo(order.getTenantId(), order.getShopId(), order.getStockReservationKey());
+    order.setStockReservationKey(null);
   }
 
   private void refreshMappedProducts(Long channelId, List<MarketplaceOrderItem> items) {
