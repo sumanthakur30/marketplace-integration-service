@@ -230,8 +230,8 @@ public class MarketplaceAmazonService {
     }
     Map<String, String> query = new LinkedHashMap<>();
     query.put("MarketplaceIds", marketplaceId);
-    query.put("CreatedAfter", createdAfter);
-    query.put("OrderStatuses", "Unshipped");
+    query.put("LastUpdatedAfter", createdAfter);
+    query.put("OrderStatuses", "Unshipped,PartiallyShipped,Shipped,Canceled");
     query.put("MaxResultsPerPage", String.valueOf(PAGE));
     return query;
   }
